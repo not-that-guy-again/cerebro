@@ -6,13 +6,12 @@ on:
   pull_request:
 
 jobs:
-  check:
-    name: ${{ matrix.os }} / py${{ matrix.python-version }}
-    runs-on: ${{ matrix.os }}
+  macos:
+    name: macos / py${{ matrix.python-version }}
+    runs-on: macos-latest
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
         python-version: ["3.12"]
     steps:
       - uses: actions/checkout@v4
@@ -35,5 +34,48 @@ jobs:
       - name: Type-check (mypy)
         run: mypy cerebro
 
-      - name: Test (pytest)
-        run: pytest
+      - name: Test (pytest, excluding linux-only tests)
+        run: pytest -m "not linux"
+
+  linux:
+    name: linux / py${{ matrix.python-version }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.12"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e '.[dev]'
+
+      - name: Enable systemd user instance
+        run: |
+          sudo loginctl enable-linger "$USER"
+          echo "XDG_RUNTIME_DIR=/run/user/$(id -u)" >> "$GITHUB_ENV"
+          # Give the user systemd instance a moment to become reachable.
+          for _ in 1 2 3 4 5; do
+            if XDG_RUNTIME_DIR=/run/user/$(id -u) systemctl --user is-system-running >/dev/null 2>&1; then
+              break
+            fi
+            sleep 1
+          done
+
+      - name: Lint (ruff)
+        run: ruff check
+
+      - name: Type-check (mypy)
+        run: mypy cerebro
+
+      - name: Test (pytest, excluding macos-only tests)
+        run: pytest -m "not macos"

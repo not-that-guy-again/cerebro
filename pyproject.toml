@@ -40,6 +40,10 @@ packages = ["cerebro"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-ra"
+markers = [
+    "macos: integration test that requires macOS (launchd).",
+    "linux: integration test that requires Linux (systemd-user).",
+]
 
 [tool.ruff]
 target-version = "py312"
