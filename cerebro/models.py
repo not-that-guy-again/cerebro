@@ -114,6 +114,9 @@ class Operation(_Base):
     kind: OperationKind
     parameters: dict[str, Any] = Field(default_factory=dict)
     inverse: dict[str, Any] = Field(default_factory=dict)
+    # When ``True`` the resource was already present at install time and must
+    # be left in place during uninstall/rollback (per ADR-0007).
+    pre_existing: bool = False
 
 
 class InstallManifest(_Base):
