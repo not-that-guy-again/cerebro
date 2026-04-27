@@ -19,6 +19,7 @@ import click
 
 from cerebro.plugins.loader import PluginConflictError, PluginLoadError
 from cerebro.plugins.resolver import DependencyResolutionError
+from cerebro.runtime.doctor import DoctorError
 from cerebro.runtime.engine import (
     DependencyInUseError,
     EngineError,
@@ -43,6 +44,8 @@ def _exit_code_for(exc: BaseException) -> int:
     if isinstance(exc, DependencyResolutionError | PluginLoadError):
         return EXIT_NOT_FOUND
     if isinstance(exc, LifecycleError | TapError | PluginConflictError):
+        return EXIT_PRECONDITION
+    if isinstance(exc, DoctorError):
         return EXIT_PRECONDITION
     if isinstance(exc, ReconfigureError | EngineError):
         return EXIT_ERROR
@@ -69,6 +72,7 @@ def handle_errors[F: Callable[..., Any]](func: F) -> F:
         except (
             DependencyInUseError,
             DependencyResolutionError,
+            DoctorError,
             EngineError,
             LifecycleError,
             PluginConflictError,

@@ -1,0 +1,11 @@
+name: demo-full
+version: 1.0.0
+type: workflow
+description: Synthetic plugin that exercises every recorded operation kind.
+dependencies: {}
+min_core_version: 0.1.0
+supported_platforms:
+  - macos
+  - linux
+hooks_declared:
+  - install

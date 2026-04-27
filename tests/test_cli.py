@@ -47,7 +47,7 @@ Options:
 
 Commands:
   disable      Disable a plugin and tear down its scheduled tasks.
-  doctor       Detect drift between Cerebro state and the filesystem (stub).
+  doctor       Detect drift between Cerebro state and the filesystem.
   enable       Enable a plugin and re-register its scheduled tasks.
   init         Interactively configure the vault and install starter plugins.
   install      Install a plugin and its dependencies.
@@ -109,10 +109,14 @@ Options:
     ("doctor",): """\
 Usage: cerebro doctor [OPTIONS]
 
-  Detect drift between Cerebro state and the filesystem (stub).
+  Detect drift between Cerebro state and the filesystem.
 
 Options:
-  -h, --help  Show this message and exit.
+  --non-interactive              Do not prompt; pair with --action to apply a
+                                 uniform action to every drifted plugin.
+  --action [repair|accept|fail]  Action for non-interactive mode: re-run
+                                 install, accept disk state, or exit non-zero.
+  -h, --help                     Show this message and exit.
 """,
     ("self-update",): """\
 Usage: cerebro self-update [OPTIONS]
@@ -400,10 +404,10 @@ def test_tap_remove_unknown_exits_4(runner: CliRunner, cerebro_home: Path) -> No
     assert "ghost" in result.stderr
 
 
-def test_doctor_stub(runner: CliRunner, cerebro_home: Path) -> None:
+def test_doctor_clean_state(runner: CliRunner, cerebro_home: Path) -> None:
     result = runner.invoke(cli, ["doctor"])
     assert result.exit_code == EXIT_OK
-    assert "not yet implemented" in result.output
+    assert "(no plugins installed)" in result.output
 
 
 def test_init_drives_install(
