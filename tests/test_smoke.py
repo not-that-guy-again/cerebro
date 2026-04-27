@@ -7,4 +7,4 @@ def test_package_imports() -> None:
 
 
 def test_cli_runs() -> None:
-    assert main([]) == 0
+    assert main(["--help"]) == 0

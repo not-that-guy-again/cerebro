@@ -25,8 +25,44 @@ ruff check
 mypy cerebro
 ```
 
-The CLI is wired up but does nothing yet beyond reporting its version:
+## CLI
 
 ```sh
-cerebro --version
+cerebro --help        # list commands
+cerebro --version     # print core version
+cerebro init          # interactive setup: vault location + plugin selection
+cerebro install <plugin>
+cerebro uninstall <plugin>
+cerebro list                # installed plugins
+cerebro list --available    # every discoverable plugin (in-tree + every tap)
+cerebro enable <plugin>
+cerebro disable <plugin>
+cerebro tap add <git-url> [--n <name>]
+cerebro tap remove <name>
+cerebro tap list
+cerebro tap update [<name>]
+cerebro doctor        # drift detection (stub; full implementation lands later)
+cerebro self-update   # git pull + reinstall in Cerebro's venv
 ```
+
+Global flags:
+
+- `--verbose` mirrors the engine's debug log to stderr in addition to the
+  log file under `<state-dir>/logs/`.
+- `--json` emits machine-readable JSON for commands that support it
+  (e.g. `cerebro --json list`, `cerebro --json tap list`). Goes before
+  the subcommand.
+
+### Exit codes
+
+| Code | Meaning                                                                          |
+| ---- | -------------------------------------------------------------------------------- |
+| 0    | Success.                                                                         |
+| 1    | Generic runtime failure (engine error, reconfigure failure, IO error, etc.).     |
+| 2    | Usage error (unknown option/argument; produced by Click).                        |
+| 3    | Plugin not found or could not be loaded.                                         |
+| 4    | Precondition failed (dependency in use, tap missing, tap still has installs).    |
+| 5    | Multi-plugin install transaction rolled back after a mid-flight failure.         |
+
+Errors print a short message to stderr; full stack traces go to the log
+file unless `--verbose` is set.
