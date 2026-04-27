@@ -27,6 +27,14 @@ import click
 from cerebro import __version__
 from cerebro.cli._errors import EXIT_OK, handle_errors
 from cerebro.cli._init import run_init
+from cerebro.runtime.doctor import (
+    DriftReport,
+    OperationStatus,
+    accept_plugin,
+    repair_plugin,
+    report_to_dict,
+    run_doctor,
+)
 from cerebro.runtime.engine import install as engine_install
 from cerebro.runtime.engine import uninstall as engine_uninstall
 from cerebro.runtime.lifecycle import disable_plugin, enable_plugin
@@ -337,15 +345,140 @@ def tap_update_command(ctx: click.Context, name: str | None) -> None:
         click.echo(f"updated {tap_name}")
 
 
-@cli.command("doctor", help="Detect drift between Cerebro state and the filesystem (stub).")
+@cli.command("doctor", help="Detect drift between Cerebro state and the filesystem.")
+@click.option(
+    "--non-interactive",
+    is_flag=True,
+    help="Do not prompt; pair with --action to apply a uniform action to every drifted plugin.",
+)
+@click.option(
+    "--action",
+    type=click.Choice(["repair", "accept", "fail"]),
+    default=None,
+    help="Action for non-interactive mode: re-run install, accept disk state, or exit non-zero.",
+)
 @click.pass_context
 @handle_errors
-def doctor_command(ctx: click.Context) -> None:
-    message = "doctor: drift detection is not yet implemented"
-    if ctx.obj.get("json"):
-        click.echo(json.dumps({"status": "not-implemented", "message": message}))
-    else:
-        click.echo(message)
+def doctor_command(ctx: click.Context, non_interactive: bool, action: str | None) -> None:
+    json_output = bool(ctx.obj.get("json"))
+    # --action implies non-interactive; --json never prompts.
+    if action is not None or json_output:
+        non_interactive = True
+
+    reports = run_doctor()
+
+    if json_output:
+        _emit_doctor_json(reports, action)
+        _maybe_apply_action(reports, action)
+        return
+
+    _print_doctor_table(reports)
+
+    if not any(r.is_drifted for r in reports):
+        return
+
+    if non_interactive:
+        if action == "fail":
+            raise click.ClickException("drift detected (--action fail)")
+        if action in ("repair", "accept"):
+            _apply_doctor_action(reports, action)
+        return
+
+    _run_doctor_interactive(reports)
+
+
+def _emit_doctor_json(reports: list[DriftReport], action: str | None) -> None:
+    click.echo(
+        json.dumps(
+            {
+                "reports": [report_to_dict(r) for r in reports],
+                "action": action,
+            },
+            default=str,
+        )
+    )
+
+
+def _maybe_apply_action(reports: list[DriftReport], action: str | None) -> None:
+    if action in ("repair", "accept"):
+        _apply_doctor_action(reports, action)
+    elif action == "fail":
+        if any(r.is_drifted for r in reports):
+            raise click.ClickException("drift detected (--action fail)")
+
+
+def _apply_doctor_action(reports: list[DriftReport], action: str) -> None:
+    for report in reports:
+        if not report.is_drifted:
+            continue
+        if action == "repair":
+            repair_plugin(report.plugin_name)
+            click.echo(f"repaired {report.plugin_name}")
+        elif action == "accept":
+            accept_plugin(report.plugin_name)
+            click.echo(f"accepted {report.plugin_name}")
+
+
+def _print_doctor_table(reports: list[DriftReport]) -> None:
+    if not reports:
+        click.echo("(no plugins installed)")
+        return
+    name_width = max(len("PLUGIN"), max(len(r.plugin_name) for r in reports))
+    version_width = max(len("VERSION"), max(len(r.version) for r in reports))
+    header = f"{'PLUGIN':<{name_width}}  {'VERSION':<{version_width}}  STATUS   DETAILS"
+    click.echo(header)
+    for report in reports:
+        status = "drifted" if report.is_drifted else "ok"
+        if report.manifest_missing:
+            details = "install manifest is missing"
+        elif report.is_drifted:
+            counts = {"drifted": 0, "missing": 0}
+            for c in report.checks:
+                if c.status is OperationStatus.DRIFTED:
+                    counts["drifted"] += 1
+                elif c.status is OperationStatus.MISSING:
+                    counts["missing"] += 1
+            parts = [f"{v} {k}" for k, v in counts.items() if v]
+            details = ", ".join(parts) if parts else ""
+        else:
+            details = ""
+        click.echo(
+            f"{report.plugin_name:<{name_width}}  "
+            f"{report.version:<{version_width}}  "
+            f"{status:<7}  {details}"
+        )
+    for report in reports:
+        if not report.is_drifted:
+            continue
+        click.echo("")
+        click.echo(f"{report.plugin_name}:")
+        if report.manifest_missing:
+            click.echo("  install manifest is missing; repair will re-run install")
+            continue
+        for check in report.drifted_checks():
+            label = check.status.value
+            click.echo(f"  {label:<8} {check.kind:<14} {check.target}  -- {check.detail}")
+
+
+def _run_doctor_interactive(reports: list[DriftReport]) -> None:
+    for report in reports:
+        if not report.is_drifted:
+            continue
+        click.echo("")
+        click.echo(f"{report.plugin_name}: drifted")
+        choice = click.prompt(
+            "  action",
+            type=click.Choice(["repair", "accept", "skip"]),
+            default="skip",
+        )
+        if choice == "repair":
+            repair_plugin(report.plugin_name)
+            click.echo(f"  repaired {report.plugin_name}")
+        elif choice == "accept":
+            accept_plugin(report.plugin_name)
+            click.echo(f"  accepted {report.plugin_name}")
+        else:
+            click.echo(f"  skipped {report.plugin_name}")
 
 
 @cli.command(

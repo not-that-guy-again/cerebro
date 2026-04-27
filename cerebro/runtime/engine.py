@@ -739,6 +739,63 @@ def reconfigure_targeting(
             log.close()
 
 
+def reinstall_plugin(
+    plugin_name: str,
+    *,
+    home: Path | None = None,
+    in_tree_root: Path | None = None,
+    taps_root: Path | None = None,
+    components: PlatformComponents | None = None,
+    auth: AuthHandoff | None = None,
+    now: datetime | None = None,
+) -> None:
+    """Re-run a single installed plugin's ``install`` hook.
+
+    Used by ``cerebro doctor --action repair`` to bring drifted on-disk
+    state back into agreement with the install manifest. Transactional:
+    the recorder rolls back partial changes if the hook raises, and the
+    existing install manifest is only replaced once the new run commits.
+
+    Skips the dependency resolver (we are operating on an already
+    installed plugin) and the post-install reconfigure pass (no new
+    plugin type was added). Raises :class:`EngineError` if the plugin
+    is not installed or its source is no longer discoverable.
+    """
+    paths = _Paths.resolve(home)
+    log = _open_log(paths, "repair")
+    try:
+        components = components if components is not None else make_platform_components()
+        auth_handoff: AuthHandoff = auth if auth is not None else NullAuthHandoff()
+        when = now if now is not None else datetime.now(tz=UTC)
+
+        state = _read_state(paths)
+        if not any(p.name == plugin_name for p in state.installed_plugins):
+            raise EngineError(f"plugin {plugin_name!r} is not installed")
+
+        available = discover_plugins(state, in_tree_root=in_tree_root, taps_root=taps_root)
+        if plugin_name not in available:
+            raise EngineError(
+                f"plugin {plugin_name!r} is no longer discoverable; "
+                "cannot repair without its source"
+            )
+
+        manifest = available[plugin_name].manifest
+        log.event("repair.begin", plugin=plugin_name)
+        _install_one(
+            manifest=manifest,
+            available=available,
+            state=state,
+            components=components,
+            auth=auth_handoff,
+            paths=paths,
+            when=when,
+            log=log,
+        )
+        log.event("repair.complete", plugin=plugin_name)
+    finally:
+        log.close()
+
+
 __all__ = [
     "DependencyInUseError",
     "EngineError",
@@ -747,5 +804,6 @@ __all__ = [
     "TransactionRollbackError",
     "install",
     "reconfigure_targeting",
+    "reinstall_plugin",
     "uninstall",
 ]
