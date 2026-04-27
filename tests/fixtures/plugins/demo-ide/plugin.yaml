@@ -1,0 +1,11 @@
+name: demo-ide
+version: 1.0.0
+type: ide
+description: Synthetic IDE plugin used by engine tests.
+dependencies: {}
+min_core_version: 0.1.0
+supported_platforms:
+  - macos
+  - linux
+hooks_declared:
+  - install

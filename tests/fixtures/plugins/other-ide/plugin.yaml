@@ -1,0 +1,11 @@
+name: other-ide
+version: 1.0.0
+type: ide
+description: Second synthetic IDE plugin used to exercise reconfigure pass.
+dependencies: {}
+min_core_version: 0.1.0
+supported_platforms:
+  - macos
+  - linux
+hooks_declared:
+  - install
