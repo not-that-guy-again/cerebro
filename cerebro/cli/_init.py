@@ -15,6 +15,7 @@ import click
 from cerebro.models import CerebroState, PluginType
 from cerebro.runtime.engine import install
 from cerebro.runtime.platform import PlatformComponents
+from cerebro.runtime.prompt import ClickPrompt
 from cerebro.runtime.taps import discover_available
 from cerebro.state import load_state, save_state, state_dir
 
@@ -84,6 +85,7 @@ def run_init(
             home=base,
             in_tree_root=in_tree_root,
             components=components,
+            prompt=ClickPrompt(),
             now=datetime.now(tz=UTC),
         )
     click.echo("Done.")

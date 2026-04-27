@@ -65,6 +65,7 @@ from cerebro.runtime.platform import (
     PlatformComponents,
     make_platform_components,
 )
+from cerebro.runtime.prompt import NullPrompt, Prompt
 from cerebro.runtime.scheduling import Scheduler
 from cerebro.state import (
     load_install_manifest,
@@ -91,6 +92,23 @@ class PluginInstallError(EngineError):
         super().__init__(f"install of plugin {plugin_name!r} failed: {original}")
         self.plugin_name = plugin_name
         self.original = original
+
+
+class PluginAlreadyInstalledError(EngineError):
+    """``cerebro install <plugin>`` was called for a plugin already present.
+
+    Re-running install is a no-op the engine refuses on purpose. Plugins
+    that hold user-supplied state (selections, credentials) treat this
+    refusal as the signal to use a separate reconfigure flow rather than
+    silently dropping a second install on top of the first.
+    """
+
+    def __init__(self, plugin_name: str) -> None:
+        super().__init__(
+            f"plugin {plugin_name!r} is already installed; "
+            "uninstall it first to re-run install."
+        )
+        self.plugin_name = plugin_name
 
 
 class TransactionRollbackError(EngineError):
@@ -369,6 +387,7 @@ def _build_ctx(
     components: PlatformComponents,
     available: dict[str, DiscoveredPlugin],
     auth: AuthHandoff,
+    prompt: Prompt,
     when: datetime,
     logger: logging.Logger,
 ) -> HookContext:
@@ -379,6 +398,7 @@ def _build_ctx(
         scheduler=components.scheduler,
         when=when,
         auth=auth,
+        prompt=prompt,
         manifest_lookup=_manifest_lookup_factory(available),
         logger=logger,
     )
@@ -392,6 +412,7 @@ def install(
     taps_root: Path | None = None,
     components: PlatformComponents | None = None,
     auth: AuthHandoff | None = None,
+    prompt: Prompt | None = None,
     now: datetime | None = None,
 ) -> None:
     """Install ``plugin_name`` and any missing dependencies.
@@ -406,9 +427,13 @@ def install(
     try:
         components = components if components is not None else make_platform_components()
         auth_handoff: AuthHandoff = auth if auth is not None else NullAuthHandoff()
+        prompt_helper: Prompt = prompt if prompt is not None else NullPrompt()
         when = now if now is not None else datetime.now(tz=UTC)
 
         state = _read_state(paths)
+        if any(p.name == plugin_name for p in state.installed_plugins):
+            log.event("install.refused_already_installed", plugin=plugin_name)
+            raise PluginAlreadyInstalledError(plugin_name)
         available = discover_plugins(state, in_tree_root=in_tree_root, taps_root=taps_root)
         log.event("install.begin", plugin=plugin_name)
         order = resolve_install_order(plugin_name, available, state.installed_plugins)
@@ -424,6 +449,7 @@ def install(
                         state=state,
                         components=components,
                         auth=auth_handoff,
+                        prompt=prompt_helper,
                         paths=paths,
                         when=when,
                         log=log,
@@ -450,6 +476,7 @@ def install(
                 taps_root=taps_root,
                 components=components,
                 auth=auth_handoff,
+                prompt=prompt_helper,
                 now=when,
                 log=log,
             )
@@ -476,6 +503,7 @@ def _install_one(
     state: CerebroState,
     components: PlatformComponents,
     auth: AuthHandoff,
+    prompt: Prompt,
     paths: _Paths,
     when: datetime,
     log: _EngineLogger,
@@ -495,6 +523,7 @@ def _install_one(
         components=components,
         available=available,
         auth=auth,
+        prompt=prompt,
         when=when,
         logger=plugin_logger,
     )
@@ -571,6 +600,7 @@ def uninstall(
     taps_root: Path | None = None,
     components: PlatformComponents | None = None,
     auth: AuthHandoff | None = None,
+    prompt: Prompt | None = None,
     now: datetime | None = None,
 ) -> None:
     """Uninstall ``plugin_name``.
@@ -585,6 +615,7 @@ def uninstall(
     try:
         components = components if components is not None else make_platform_components()
         auth_handoff: AuthHandoff = auth if auth is not None else NullAuthHandoff()
+        prompt_helper: Prompt = prompt if prompt is not None else NullPrompt()
         when = now if now is not None else datetime.now(tz=UTC)
 
         state = _read_state(paths)
@@ -638,6 +669,7 @@ def uninstall(
                     taps_root=taps_root,
                     components=components,
                     auth=auth_handoff,
+                    prompt=prompt_helper,
                     now=when,
                     log=log,
                 )
@@ -662,6 +694,7 @@ def reconfigure_targeting(
     taps_root: Path | None = None,
     components: PlatformComponents | None = None,
     auth: AuthHandoff | None = None,
+    prompt: Prompt | None = None,
     now: datetime | None = None,
     log: _EngineLogger | None = None,
 ) -> None:
@@ -680,6 +713,7 @@ def reconfigure_targeting(
     try:
         components = components if components is not None else make_platform_components()
         auth_handoff: AuthHandoff = auth if auth is not None else NullAuthHandoff()
+        prompt_helper: Prompt = prompt if prompt is not None else NullPrompt()
         when = now if now is not None else datetime.now(tz=UTC)
 
         state = _read_state(paths)
@@ -712,6 +746,7 @@ def reconfigure_targeting(
                 components=components,
                 available=available,
                 auth=auth_handoff,
+                prompt=prompt_helper,
                 when=when,
                 logger=log.child_for_plugin(record.name),
             )
@@ -759,6 +794,7 @@ def reinstall_plugin(
     taps_root: Path | None = None,
     components: PlatformComponents | None = None,
     auth: AuthHandoff | None = None,
+    prompt: Prompt | None = None,
     now: datetime | None = None,
 ) -> None:
     """Re-run a single installed plugin's ``install`` hook.
@@ -778,6 +814,7 @@ def reinstall_plugin(
     try:
         components = components if components is not None else make_platform_components()
         auth_handoff: AuthHandoff = auth if auth is not None else NullAuthHandoff()
+        prompt_helper: Prompt = prompt if prompt is not None else NullPrompt()
         when = now if now is not None else datetime.now(tz=UTC)
 
         state = _read_state(paths)
@@ -799,6 +836,7 @@ def reinstall_plugin(
             state=state,
             components=components,
             auth=auth_handoff,
+            prompt=prompt_helper,
             paths=paths,
             when=when,
             log=log,
@@ -811,6 +849,7 @@ def reinstall_plugin(
 __all__ = [
     "DependencyInUseError",
     "EngineError",
+    "PluginAlreadyInstalledError",
     "PluginInstallError",
     "ReconfigureError",
     "TransactionRollbackError",

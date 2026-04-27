@@ -20,6 +20,7 @@ from cerebro.models import CerebroState, InstalledPlugin, PluginManifest, Plugin
 from cerebro.runtime.auth import AuthHandoff, NullAuthHandoff
 from cerebro.runtime.pkg_managers import CommandRunner
 from cerebro.runtime.platform import PackageManager
+from cerebro.runtime.prompt import NullPrompt, Prompt
 from cerebro.runtime.recorder import (
     AuthHandoffHelper,
     BlocksHelper,
@@ -47,6 +48,7 @@ class HookContext:
     tasks: ScheduledTaskHelper
     cmd: CommandHelper
     auth: AuthHandoffHelper
+    prompt: Prompt
     log: logging.Logger
     manifest: OperationRecorder
     _manifest_lookup: ManifestLookup = field(default=_no_manifest)
@@ -71,6 +73,7 @@ def build_context(
     scheduler: Scheduler,
     when: datetime,
     auth: AuthHandoff | None = None,
+    prompt: Prompt | None = None,
     manifest_lookup: ManifestLookup | None = None,
     logger: logging.Logger | None = None,
     command_runner: CommandRunner | None = None,
@@ -91,6 +94,7 @@ def build_context(
         tasks=ScheduledTaskHelper(recorder, scheduler),
         cmd=CommandHelper(recorder, command_runner),
         auth=AuthHandoffHelper(auth or NullAuthHandoff()),
+        prompt=prompt or NullPrompt(),
         log=logger or logging.getLogger(f"cerebro.plugin.{plugin.name}"),
         manifest=recorder,
         _manifest_lookup=manifest_lookup or _no_manifest,

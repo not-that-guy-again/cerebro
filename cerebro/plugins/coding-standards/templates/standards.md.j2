@@ -1,0 +1,90 @@
+## Coding Standards
+
+These standards are managed by Cerebro and apply to every repository you
+work in. The intent is to capture decisions you have already made about
+how you want an agent to work — branching, commits, PRs, testing, prose
+and code style — so each new conversation starts from the same baseline
+without having to relitigate the basics.
+
+### Branching
+
+{% if branching.work_on_main_allowed -%}
+- Working directly on the main branch is allowed when a change is small
+  and obviously safe (typo fix, log message). For anything else, branch.
+{%- else -%}
+- Never commit directly to the main branch. Always work on a feature
+  branch and open a pull request.
+{%- endif %}
+{% if branching.ask_before_creating -%}
+- Ask before creating a new branch. Confirm the branch name and the
+  scope of the change before checking out.
+{%- else -%}
+- Create branches as needed without asking. The branch name should
+  describe the work, not the ticket.
+{%- endif %}
+- Branch naming scheme: {{ branching.naming_scheme }}.
+
+### Commits
+
+{% if commits.descriptive_messages -%}
+- Commit messages describe *why* the change exists, not just *what*
+  changed. The diff already shows what; the message exists for the
+  reader who needs to understand the motivation.
+{%- else -%}
+- Commit messages can be terse. Optimize for getting work committed.
+{%- endif %}
+{% if commits.conventional -%}
+- Use conventional commit prefixes (`feat:`, `fix:`, `chore:`, `docs:`,
+  `refactor:`, `test:`). The prefix sets the tone for the rest of the
+  message.
+{%- else -%}
+- Conventional commit prefixes are not required. Use plain prose.
+{%- endif %}
+{% if commits.signed -%}
+- All commits must be GPG-signed. Do not bypass signing with
+  `--no-gpg-sign` for any reason.
+{%- else -%}
+- Commit signing is not required.
+{%- endif %}
+
+### Pull requests
+
+{% if prs.tests_must_pass -%}
+- All tests must pass locally before opening a pull request. Do not
+  open a PR with known-failing tests and a "will fix in CI" note.
+{%- else -%}
+- Tests do not have to pass locally before opening a PR; CI is the
+  source of truth.
+{%- endif %}
+{% if prs.description_template -%}
+- PR descriptions follow the template: a "Summary" section
+  (1-3 bullet points on what changed and why) and a "Test plan"
+  section (a checklist of how the change was verified).
+{%- else -%}
+- PR description format is freeform.
+{%- endif %}
+
+### Testing
+
+{% if testing.tdd -%}
+- Practice test-driven development. Write the failing test first, then
+  the smallest production change that makes it pass.
+{%- else -%}
+- TDD is not required. Tests can follow the implementation.
+{%- endif %}
+- Minimum coverage expectation for new code: {{ testing.min_coverage }}.
+
+### Prose style (in code, comments, docs, commit messages)
+
+- No emdashes. If you reach for an emdash, restructure the sentence.
+- Sentence fragments are fine when they read naturally.
+- Be terse but descriptive. Avoid hedging language ("perhaps",
+  "it might be the case that"). State things directly.
+
+### Code style
+
+- Names matter more than comments. A well-named function or variable
+  removes the need for a comment that explains *what* it does.
+- Comments exist to explain *why*. The code already shows what.
+- Prefer obvious code over clever code. The reader's time is more
+  valuable than the writer's typing time.

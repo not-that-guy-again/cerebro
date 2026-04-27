@@ -19,6 +19,7 @@ classifiers = [
 ]
 dependencies = [
     "click>=8.1",
+    "jinja2>=3.1",
     "pydantic>=2.6",
     "PyYAML>=6.0",
     "semantic_version>=2.10",
@@ -58,3 +59,10 @@ python_version = "3.12"
 ignore_missing_imports = true
 warn_unused_ignores = true
 warn_redundant_casts = true
+# In-tree plugin directories use hyphens (e.g. ``coding-standards``)
+# which mypy cannot resolve as Python packages. Each ``plugin.py`` is
+# loaded dynamically by ``cerebro.plugins.loader`` via importlib, so
+# static checking would not see real callers anyway. Excluding them
+# avoids the "duplicate module named 'plugin'" collision once two or
+# more hyphenated plugin dirs exist.
+exclude = "cerebro/plugins/[^/]+/plugin\\.py$"
