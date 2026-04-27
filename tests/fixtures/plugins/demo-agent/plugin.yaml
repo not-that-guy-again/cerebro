@@ -1,0 +1,13 @@
+name: demo-agent
+version: 1.0.0
+type: agent
+description: Synthetic agent plugin that binds itself to every installed IDE.
+dependencies:
+  demo-ide: ">=1.0.0"
+min_core_version: 0.1.0
+supported_platforms:
+  - macos
+  - linux
+hooks_declared:
+  - install
+  - configure
