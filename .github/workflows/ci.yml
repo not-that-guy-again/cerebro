@@ -6,6 +6,80 @@ on:
   pull_request:
 
 jobs:
+  shellcheck:
+    name: shellcheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install shellcheck
+        run: sudo apt-get update && sudo apt-get install -y shellcheck
+      - name: Run shellcheck
+        run: shellcheck scripts/install.sh scripts/uninstall.sh
+
+  bootstrap-linux:
+    name: bootstrap / ubuntu:24.04 (fresh container)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Pin checkout to a branch (avoid detached HEAD for clone)
+        run: git switch -C bootstrap-ci-source
+      - name: Run install.sh in a fresh ubuntu:24.04 container
+        run: |
+          docker run --rm \
+            -v "$PWD:/src:ro" \
+            -e CEREBRO_ASSUME_YES=1 \
+            -e CEREBRO_REPO_URL=file:///src \
+            -e HOME=/root \
+            ubuntu:24.04 \
+            bash -euo pipefail -c '
+              apt-get update
+              DEBIAN_FRONTEND=noninteractive apt-get install -y \
+                  bash curl ca-certificates git sudo
+              git config --global --add safe.directory "*"
+              bash /src/scripts/install.sh
+              export PATH="$HOME/.local/bin:$PATH"
+              cerebro --version
+              echo "--- second run (idempotency) ---"
+              bash /src/scripts/install.sh
+              cerebro --version
+              echo "--- uninstall ---"
+              CEREBRO_ASSUME_YES=1 bash /src/scripts/uninstall.sh
+              test ! -e "$HOME/.local/bin/cerebro"
+              test ! -e "$HOME/.local/share/cerebro"
+            '
+
+  bootstrap-macos:
+    name: bootstrap / macos-latest
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Pin checkout to a branch (avoid detached HEAD for clone)
+        run: git switch -C bootstrap-ci-source
+      - name: Run install.sh
+        env:
+          CEREBRO_ASSUME_YES: "1"
+          CEREBRO_REPO_URL: "file://${{ github.workspace }}"
+        run: bash scripts/install.sh
+      - name: Verify cerebro --version
+        run: |
+          export PATH="$HOME/.local/bin:$PATH"
+          cerebro --version
+      - name: Re-run install.sh (idempotency)
+        env:
+          CEREBRO_ASSUME_YES: "1"
+          CEREBRO_REPO_URL: "file://${{ github.workspace }}"
+        run: |
+          bash scripts/install.sh
+          export PATH="$HOME/.local/bin:$PATH"
+          cerebro --version
+      - name: Run uninstall.sh
+        env:
+          CEREBRO_ASSUME_YES: "1"
+        run: |
+          bash scripts/uninstall.sh
+          test ! -e "$HOME/.local/bin/cerebro"
+          test ! -e "$HOME/.local/share/cerebro"
+
   macos:
     name: macos / py${{ matrix.python-version }}
     runs-on: macos-latest
