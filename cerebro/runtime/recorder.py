@@ -15,6 +15,7 @@ remove things the user had before Cerebro touched the system.
 from __future__ import annotations
 
 import logging
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -22,6 +23,7 @@ from pathlib import Path
 from cerebro.models import InstallManifest, Operation
 from cerebro.runtime.auth import AuthHandoff
 from cerebro.runtime.blocks import find_block, get_format, remove_block, upsert_block
+from cerebro.runtime.pkg_managers import CommandRunner, _default_runner
 from cerebro.runtime.platform import PackageManager
 from cerebro.runtime.scheduling import Scheduler
 
@@ -80,6 +82,7 @@ class OperationRecorder:
         when: datetime,
         package_manager: PackageManager,
         scheduler: Scheduler,
+        command_runner: CommandRunner | None = None,
     ) -> None:
         self._cfg = _RecorderConfig(
             plugin_name=plugin_name,
@@ -88,6 +91,7 @@ class OperationRecorder:
         )
         self._package_manager = package_manager
         self._scheduler = scheduler
+        self._command_runner = command_runner or _default_runner
         self._operations: list[Operation] = []
 
     @property
@@ -132,6 +136,8 @@ class OperationRecorder:
             self._invert_run_pkg(op)
         elif op.kind == "register_task":
             self._invert_register_task(op)
+        elif op.kind == "run_command":
+            self._invert_run_command(op)
         else:  # pragma: no cover - guarded by Operation kind validation
             raise ValueError(f"unknown operation kind: {op.kind!r}")
 
@@ -145,11 +151,24 @@ class OperationRecorder:
 
     def _invert_run_pkg(self, op: Operation) -> None:
         package = op.inverse["package"]
-        self._package_manager.uninstall(package)
+        if op.inverse.get("cask"):
+            uninstall_cask = getattr(self._package_manager, "uninstall_cask", None)
+            if uninstall_cask is None:
+                raise RuntimeError(
+                    f"cannot invert cask install of {package!r}: "
+                    "package manager has no uninstall_cask"
+                )
+            uninstall_cask(package)
+        else:
+            self._package_manager.uninstall(package)
 
     def _invert_register_task(self, op: Operation) -> None:
         name = op.inverse["name"]
         self._scheduler.unregister(name)
+
+    def _invert_run_command(self, op: Operation) -> None:
+        argv = list(op.inverse["argv"])
+        self._command_runner(argv, check=True)
 
 
 class FilesystemHelper:
@@ -249,7 +268,14 @@ class BlocksHelper:
 
 
 class PackageManagerHelper:
-    """``ctx.pkg``: install packages through the recorder."""
+    """``ctx.pkg``: install packages through the recorder.
+
+    The plain ``install`` / ``is_installed`` methods route through the
+    cross-platform :class:`PackageManager` protocol. ``install_cask`` /
+    ``is_cask_installed`` are macOS-only convenience wrappers; they
+    delegate to the underlying brew package manager and raise on
+    platforms that have no cask concept.
+    """
 
     def __init__(
         self,
@@ -269,6 +295,28 @@ class PackageManagerHelper:
                 kind="run_pkg",
                 parameters={"action": "install", "package": package},
                 inverse={"action": "uninstall", "package": package},
+                pre_existing=result.already_installed,
+            )
+        )
+
+    def is_cask_installed(self, package: str) -> bool:
+        checker = getattr(self._pm, "is_cask_installed", None)
+        if checker is None:
+            return False
+        return bool(checker(package))
+
+    def install_cask(self, package: str) -> None:
+        installer = getattr(self._pm, "install_cask", None)
+        if installer is None:
+            raise RuntimeError(
+                f"install_cask({package!r}) requires a brew-style package manager"
+            )
+        result = installer(package)
+        self._recorder.record(
+            Operation(
+                kind="run_pkg",
+                parameters={"action": "install", "package": package, "cask": True},
+                inverse={"action": "uninstall", "package": package, "cask": True},
                 pre_existing=result.already_installed,
             )
         )
@@ -303,6 +351,45 @@ class ScheduledTaskHelper:
         )
 
 
+class CommandHelper:
+    """``ctx.cmd``: run an arbitrary command and record an inverse for rollback.
+
+    Use this for tools that have no first-class helper (e.g.
+    ``code --install-extension`` for VSCode). The plugin supplies the
+    inverse argv; the recorder runs it on rollback or uninstall. Mark
+    ``pre_existing=True`` when the resource was already in the desired
+    state so the inverse is skipped — same semantics as ``ctx.pkg``.
+    """
+
+    def __init__(
+        self,
+        recorder: OperationRecorder,
+        runner: CommandRunner | None = None,
+    ) -> None:
+        self._recorder = recorder
+        self._run = runner or _default_runner
+
+    def run(
+        self,
+        argv: Sequence[str],
+        *,
+        inverse_argv: Sequence[str],
+        pre_existing: bool = False,
+    ) -> None:
+        argv_list = list(argv)
+        inverse_list = list(inverse_argv)
+        if not pre_existing:
+            self._run(argv_list, check=True)
+        self._recorder.record(
+            Operation(
+                kind="run_command",
+                parameters={"argv": argv_list},
+                inverse={"argv": inverse_list},
+                pre_existing=pre_existing,
+            )
+        )
+
+
 class AuthHandoffHelper:
     """``ctx.auth``: pause for an interactive auth step.
 
@@ -322,6 +409,7 @@ class AuthHandoffHelper:
 __all__ = [
     "AuthHandoffHelper",
     "BlocksHelper",
+    "CommandHelper",
     "FilesystemHelper",
     "OperationRecorder",
     "PackageManagerHelper",

@@ -149,13 +149,20 @@ def _check_add_block(op: Operation) -> OperationCheck:
 
 def _check_run_pkg(op: Operation, components: PlatformComponents) -> OperationCheck:
     package = op.parameters["package"]
-    if components.package_manager.is_installed(package):
+    is_cask = bool(op.parameters.get("cask", False))
+    pm = components.package_manager
+    if is_cask:
+        checker = getattr(pm, "is_cask_installed", None)
+        installed = bool(checker(package)) if checker is not None else False
+    else:
+        installed = pm.is_installed(package)
+    if installed:
         return OperationCheck(kind="run_pkg", target=package, status=OperationStatus.OK)
     return OperationCheck(
         kind="run_pkg",
         target=package,
         status=OperationStatus.MISSING,
-        detail="package is not installed",
+        detail="cask is not installed" if is_cask else "package is not installed",
     )
 
 
@@ -277,13 +284,25 @@ def _accept_operation(op: Operation, components: PlatformComponents) -> Operatio
             pre_existing=op.pre_existing,
         )
     if op.kind == "run_pkg":
-        if components.package_manager.is_installed(op.parameters["package"]):
+        is_cask = bool(op.parameters.get("cask", False))
+        pm = components.package_manager
+        if is_cask:
+            checker = getattr(pm, "is_cask_installed", None)
+            installed = bool(checker(op.parameters["package"])) if checker is not None else False
+        else:
+            installed = pm.is_installed(op.parameters["package"])
+        if installed:
             return op
         return None
     if op.kind == "register_task":
         if components.scheduler.is_registered(op.parameters["name"]):
             return op
         return None
+    if op.kind == "run_command":
+        # Generic commands have no portable presence check — keep the
+        # recorded op as-is and rely on the plugin's verify hook for
+        # deeper checks.
+        return op
     return op  # pragma: no cover - guarded by Operation kind validation
 
 

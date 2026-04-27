@@ -1,0 +1,14 @@
+name: vscode
+version: 1.0.0
+type: ide
+description: Installs and verifies VSCode.
+dependencies: {}
+min_core_version: 0.1.0
+supported_platforms:
+  - macos
+  - linux_apt
+  - linux_pacman
+hooks_declared:
+  - install
+  - uninstall
+  - verify

@@ -18,10 +18,12 @@ from datetime import datetime
 
 from cerebro.models import CerebroState, InstalledPlugin, PluginManifest, PluginType
 from cerebro.runtime.auth import AuthHandoff, NullAuthHandoff
+from cerebro.runtime.pkg_managers import CommandRunner
 from cerebro.runtime.platform import PackageManager
 from cerebro.runtime.recorder import (
     AuthHandoffHelper,
     BlocksHelper,
+    CommandHelper,
     FilesystemHelper,
     OperationRecorder,
     PackageManagerHelper,
@@ -43,6 +45,7 @@ class HookContext:
     fs: FilesystemHelper
     blocks: BlocksHelper
     tasks: ScheduledTaskHelper
+    cmd: CommandHelper
     auth: AuthHandoffHelper
     log: logging.Logger
     manifest: OperationRecorder
@@ -70,6 +73,7 @@ def build_context(
     auth: AuthHandoff | None = None,
     manifest_lookup: ManifestLookup | None = None,
     logger: logging.Logger | None = None,
+    command_runner: CommandRunner | None = None,
 ) -> HookContext:
     recorder = OperationRecorder(
         plugin_name=plugin.name,
@@ -77,6 +81,7 @@ def build_context(
         when=when,
         package_manager=package_manager,
         scheduler=scheduler,
+        command_runner=command_runner,
     )
     return HookContext(
         state=state,
@@ -84,6 +89,7 @@ def build_context(
         fs=FilesystemHelper(recorder),
         blocks=BlocksHelper(recorder),
         tasks=ScheduledTaskHelper(recorder, scheduler),
+        cmd=CommandHelper(recorder, command_runner),
         auth=AuthHandoffHelper(auth or NullAuthHandoff()),
         log=logger or logging.getLogger(f"cerebro.plugin.{plugin.name}"),
         manifest=recorder,

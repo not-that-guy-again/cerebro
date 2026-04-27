@@ -8,6 +8,7 @@ import pytest
 from cerebro.runtime.platform import InstallResult
 from cerebro.runtime.recorder import (
     BlocksHelper,
+    CommandHelper,
     FilesystemHelper,
     OperationRecorder,
     PackageManagerHelper,
@@ -278,6 +279,202 @@ def test_acceptance_full_plugin_failure_leaves_disk_and_state_unchanged(
 
     # Scheduler state restored.
     assert "demo-nightly" not in sched.registered
+
+
+class _FakeBrewLikePm(FakePackageManager):
+    """``FakePackageManager`` plus brew-style cask methods."""
+
+    def __init__(
+        self,
+        *,
+        already_installed: set[str] | None = None,
+        already_cask_installed: set[str] | None = None,
+    ) -> None:
+        super().__init__(already_present=already_installed)
+        self.cask_installed: set[str] = set(already_cask_installed or set())
+
+    def is_cask_installed(self, package: str) -> bool:
+        return package in self.cask_installed
+
+    def install_cask(self, package: str) -> InstallResult:
+        already = package in self.cask_installed
+        self.cask_installed.add(package)
+        self.calls.append(("install_cask", package))
+        return InstallResult(already_installed=already)
+
+    def uninstall_cask(self, package: str) -> None:
+        self.cask_installed.discard(package)
+        self.calls.append(("uninstall_cask", package))
+
+
+def test_pkg_install_cask_records_cask_flag_and_pre_existing() -> None:
+    pm = _FakeBrewLikePm(already_cask_installed={"visual-studio-code"})
+    rec, _, _ = _make_recorder(package_manager=pm)
+    helper = PackageManagerHelper(rec, pm)
+
+    helper.install_cask("visual-studio-code")
+    helper.install_cask("rectangle")
+
+    ops = rec.operations
+    assert ops[0].parameters == {
+        "action": "install",
+        "package": "visual-studio-code",
+        "cask": True,
+    }
+    assert ops[0].pre_existing is True
+    assert ops[1].parameters["cask"] is True
+    assert ops[1].pre_existing is False
+
+
+def test_pkg_install_cask_rollback_uses_uninstall_cask() -> None:
+    pm = _FakeBrewLikePm()
+    rec, _, _ = _make_recorder(package_manager=pm)
+    helper = PackageManagerHelper(rec, pm)
+
+    helper.install_cask("rectangle")
+    assert "rectangle" in pm.cask_installed
+    rec.rollback()
+    assert "rectangle" not in pm.cask_installed
+    assert ("uninstall_cask", "rectangle") in pm.calls
+    assert ("uninstall", "rectangle") not in pm.calls
+
+
+def test_pkg_install_cask_pre_existing_skips_uninstall_on_rollback() -> None:
+    pm = _FakeBrewLikePm(already_cask_installed={"visual-studio-code"})
+    rec, _, _ = _make_recorder(package_manager=pm)
+    helper = PackageManagerHelper(rec, pm)
+
+    helper.install_cask("visual-studio-code")
+    rec.rollback()
+
+    assert "visual-studio-code" in pm.cask_installed
+    assert ("uninstall_cask", "visual-studio-code") not in pm.calls
+
+
+def test_pkg_install_cask_raises_on_non_cask_capable_pm() -> None:
+    pm = FakePackageManager()  # no install_cask attribute
+    rec, _, _ = _make_recorder(package_manager=pm)
+    helper = PackageManagerHelper(rec, pm)
+
+    with pytest.raises(RuntimeError, match="brew-style"):
+        helper.install_cask("visual-studio-code")
+    assert rec.operations == []
+
+
+def test_pkg_is_cask_installed_returns_false_on_non_brew_pm() -> None:
+    pm = FakePackageManager()
+    helper = PackageManagerHelper(_make_recorder(package_manager=pm)[0], pm)
+    assert helper.is_cask_installed("visual-studio-code") is False
+
+
+class _FakeRunner:
+    def __init__(self) -> None:
+        self.calls: list[list[str]] = []
+
+    def __call__(self, argv, *, check):
+        del check
+        self.calls.append(list(argv))
+
+        class _R:
+            returncode = 0
+            stdout = ""
+            stderr = ""
+
+        return _R()
+
+
+def test_cmd_run_records_run_command_and_runs_argv() -> None:
+    runner = _FakeRunner()
+    pm = FakePackageManager()
+    rec = OperationRecorder(
+        plugin_name="demo",
+        plugin_version="1.0.0",
+        when=datetime(2026, 4, 26, 12, 0, 0, tzinfo=UTC),
+        package_manager=pm,
+        scheduler=FakeScheduler(),
+        command_runner=runner,
+    )
+    helper = CommandHelper(rec, runner)
+
+    helper.run(
+        argv=["code", "--install-extension", "ext.id"],
+        inverse_argv=["code", "--uninstall-extension", "ext.id"],
+    )
+
+    assert runner.calls == [["code", "--install-extension", "ext.id"]]
+    op = rec.operations[0]
+    assert op.kind == "run_command"
+    assert op.parameters == {"argv": ["code", "--install-extension", "ext.id"]}
+    assert op.inverse == {"argv": ["code", "--uninstall-extension", "ext.id"]}
+    assert op.pre_existing is False
+
+
+def test_cmd_run_pre_existing_skips_invocation_but_still_records() -> None:
+    runner = _FakeRunner()
+    pm = FakePackageManager()
+    rec = OperationRecorder(
+        plugin_name="demo",
+        plugin_version="1.0.0",
+        when=datetime(2026, 4, 26, 12, 0, 0, tzinfo=UTC),
+        package_manager=pm,
+        scheduler=FakeScheduler(),
+        command_runner=runner,
+    )
+    helper = CommandHelper(rec, runner)
+
+    helper.run(
+        argv=["code", "--install-extension", "ext.id"],
+        inverse_argv=["code", "--uninstall-extension", "ext.id"],
+        pre_existing=True,
+    )
+
+    assert runner.calls == []
+    assert rec.operations[0].pre_existing is True
+
+
+def test_cmd_run_rollback_runs_inverse_argv() -> None:
+    runner = _FakeRunner()
+    pm = FakePackageManager()
+    rec = OperationRecorder(
+        plugin_name="demo",
+        plugin_version="1.0.0",
+        when=datetime(2026, 4, 26, 12, 0, 0, tzinfo=UTC),
+        package_manager=pm,
+        scheduler=FakeScheduler(),
+        command_runner=runner,
+    )
+    helper = CommandHelper(rec, runner)
+
+    helper.run(
+        argv=["code", "--install-extension", "ext.id"],
+        inverse_argv=["code", "--uninstall-extension", "ext.id"],
+    )
+    rec.rollback()
+
+    assert runner.calls[-1] == ["code", "--uninstall-extension", "ext.id"]
+
+
+def test_cmd_run_rollback_skips_inverse_for_pre_existing() -> None:
+    runner = _FakeRunner()
+    pm = FakePackageManager()
+    rec = OperationRecorder(
+        plugin_name="demo",
+        plugin_version="1.0.0",
+        when=datetime(2026, 4, 26, 12, 0, 0, tzinfo=UTC),
+        package_manager=pm,
+        scheduler=FakeScheduler(),
+        command_runner=runner,
+    )
+    helper = CommandHelper(rec, runner)
+
+    helper.run(
+        argv=["code", "--install-extension", "ext.id"],
+        inverse_argv=["code", "--uninstall-extension", "ext.id"],
+        pre_existing=True,
+    )
+    rec.rollback()
+
+    assert runner.calls == []
 
 
 def test_rollback_continues_past_failing_step(tmp_path: Path) -> None:

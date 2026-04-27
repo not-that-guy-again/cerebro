@@ -22,8 +22,8 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 PluginType = Literal["ide", "agent", "behavior", "workflow"]
-OperationKind = Literal["write_file", "add_block", "run_pkg", "register_task"]
-Platform = Literal["macos", "linux"]
+OperationKind = Literal["write_file", "add_block", "run_pkg", "register_task", "run_command"]
+Platform = Literal["macos", "linux", "linux_apt", "linux_pacman"]
 
 _SEMVER_RE = re.compile(
     r"^(?P<major>0|[1-9]\d*)\.(?P<minor>0|[1-9]\d*)\.(?P<patch>0|[1-9]\d*)"
