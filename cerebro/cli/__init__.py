@@ -38,6 +38,7 @@ from cerebro.runtime.doctor import (
 from cerebro.runtime.engine import install as engine_install
 from cerebro.runtime.engine import uninstall as engine_uninstall
 from cerebro.runtime.lifecycle import disable_plugin, enable_plugin
+from cerebro.runtime.prompt import ClickPrompt
 from cerebro.runtime.taps import (
     add_tap,
     discover_available,
@@ -116,7 +117,7 @@ def init_command(ctx: click.Context) -> None:
 @click.pass_context
 @handle_errors
 def install_command(ctx: click.Context, plugin: str) -> None:
-    engine_install(plugin, now=datetime.now(tz=UTC))
+    engine_install(plugin, prompt=ClickPrompt(), now=datetime.now(tz=UTC))
     if ctx.obj.get("json"):
         click.echo(json.dumps({"installed": plugin}))
     else:
