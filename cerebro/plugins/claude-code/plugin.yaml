@@ -1,0 +1,15 @@
+name: claude-code
+version: 1.0.0
+type: agent
+description: Installs Claude Code and wires it to the Cerebro vault.
+dependencies: {}
+min_core_version: 0.1.0
+supported_platforms:
+  - macos
+  - linux_apt
+  - linux_pacman
+hooks_declared:
+  - install
+  - uninstall
+  - configure
+  - verify
