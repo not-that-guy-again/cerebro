@@ -34,6 +34,7 @@ from __future__ import annotations
 
 import json
 import logging
+import subprocess
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -343,9 +344,20 @@ def _invert_persisted_op(
         else:
             path.write_text(new_text, encoding="utf-8")
     elif op.kind == "run_pkg":
-        package_manager.uninstall(op.inverse["package"])
+        if op.inverse.get("cask"):
+            uninstall_cask = getattr(package_manager, "uninstall_cask", None)
+            if uninstall_cask is None:
+                raise RuntimeError(
+                    f"cannot invert cask install of {op.inverse['package']!r}: "
+                    "package manager has no uninstall_cask"
+                )
+            uninstall_cask(op.inverse["package"])
+        else:
+            package_manager.uninstall(op.inverse["package"])
     elif op.kind == "register_task":
         scheduler.unregister(op.inverse["name"])
+    elif op.kind == "run_command":
+        subprocess.run(list(op.inverse["argv"]), check=True)
     else:  # pragma: no cover - guarded by Operation kind validation
         raise ValueError(f"unknown operation kind: {op.kind!r}")
 
