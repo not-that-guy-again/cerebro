@@ -699,6 +699,105 @@ def test_verify_raises_when_block_modified(
 
 
 # ---------------------------------------------------------------------------
+# slash command surface (SPEC-13)
+# ---------------------------------------------------------------------------
+
+
+def test_slash_command_path_returns_user_claude_commands_md(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module = _claude_module()
+    pm = FakeBrewPackageManager()
+    ctx = _make_ctx(package_manager=pm)
+
+    result = module.slash_command_path(ctx, "daily-briefing")
+
+    assert result == Path("~/.claude/commands/daily-briefing.md").expanduser()
+
+
+def test_register_slash_command_writes_file_through_recorder(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module = _claude_module()
+    script = tmp_path / "source" / "demo-cmd.md"
+    script.parent.mkdir(parents=True)
+    script.write_text("hello slash command", encoding="utf-8")
+
+    destination = tmp_path / "claude-commands" / "demo-cmd.md"
+    monkeypatch.setattr(
+        module,
+        "slash_command_path",
+        lambda _ctx, _name: destination,
+    )
+    pm = FakeBrewPackageManager()
+    ctx = _make_ctx(package_manager=pm)
+
+    returned = module.register_slash_command(ctx, "demo-cmd", script)
+
+    assert returned == destination
+    assert destination.read_text(encoding="utf-8") == "hello slash command"
+    write_ops = [op for op in ctx.manifest.operations if op.kind == "write_file"]
+    assert len(write_ops) == 1
+    assert Path(write_ops[0].parameters["path"]) == destination
+
+
+def test_register_slash_command_raises_when_script_missing(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module = _claude_module()
+    pm = FakeBrewPackageManager()
+    ctx = _make_ctx(package_manager=pm)
+
+    with pytest.raises(FileNotFoundError, match="slash command script not found"):
+        module.register_slash_command(
+            ctx, "missing", tmp_path / "does-not-exist.md"
+        )
+
+
+def test_unregister_slash_command_removes_file_when_present(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module = _claude_module()
+    destination = tmp_path / "claude-commands" / "old-cmd.md"
+    destination.parent.mkdir(parents=True)
+    destination.write_text("stale", encoding="utf-8")
+    monkeypatch.setattr(
+        module,
+        "slash_command_path",
+        lambda _ctx, _name: destination,
+    )
+    pm = FakeBrewPackageManager()
+    ctx = _make_ctx(package_manager=pm)
+
+    removed = module.unregister_slash_command(ctx, "old-cmd")
+
+    assert removed is True
+    assert not destination.exists()
+
+
+def test_unregister_slash_command_returns_false_when_absent(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module = _claude_module()
+    destination = tmp_path / "claude-commands" / "ghost.md"
+    monkeypatch.setattr(
+        module,
+        "slash_command_path",
+        lambda _ctx, _name: destination,
+    )
+    pm = FakeBrewPackageManager()
+    ctx = _make_ctx(package_manager=pm)
+
+    removed = module.unregister_slash_command(ctx, "ghost")
+
+    assert removed is False
+
+
+# ---------------------------------------------------------------------------
 # Engine integration
 # ---------------------------------------------------------------------------
 

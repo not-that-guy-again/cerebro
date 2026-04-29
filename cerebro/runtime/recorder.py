@@ -333,6 +333,14 @@ class ScheduledTaskHelper:
         self._recorder = recorder
         self._scheduler = scheduler
 
+    def is_registered(self, name: str) -> bool:
+        """Read-only check of whether ``name`` is currently registered.
+
+        Plugins use this in ``verify`` hooks to confirm previously
+        registered tasks are still present. Not recorded as an operation.
+        """
+        return self._scheduler.is_registered(name)
+
     def register(self, name: str, schedule: str, command: str) -> None:
         already = self._scheduler.is_registered(name)
         if not already:
