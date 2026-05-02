@@ -1,0 +1,18 @@
+name: claude-code-token-optimization
+version: 1.0.0
+type: behavior
+description: Token-saving rules and tooling for Claude Code.
+dependencies:
+  claude-code: ">=1.0.0"
+min_core_version: 0.1.0
+supported_platforms:
+  - macos
+  - linux_apt
+  - linux_pacman
+targets:
+  - claude-code
+hooks_declared:
+  - install
+  - uninstall
+  - configure
+  - verify
