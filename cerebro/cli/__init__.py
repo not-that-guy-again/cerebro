@@ -27,6 +27,11 @@ import click
 from cerebro import __version__
 from cerebro.cli._errors import EXIT_OK, handle_errors
 from cerebro.cli._init import run_init
+from cerebro.runtime.briefings import (
+    PERIODS,
+    gather_context,
+    write_stub_note,
+)
 from cerebro.runtime.doctor import (
     DriftReport,
     OperationStatus,
@@ -480,6 +485,56 @@ def _run_doctor_interactive(reports: list[DriftReport]) -> None:
             click.echo(f"  accepted {report.plugin_name}")
         else:
             click.echo(f"  skipped {report.plugin_name}")
+
+
+@cli.group(
+    "internal",
+    hidden=True,
+    help="Plugin-machinery commands; not part of the user-facing surface.",
+)
+def internal_group() -> None:
+    """Hidden group for commands invoked by plugins (e.g. scheduled tasks).
+
+    The ``internal`` namespace exists so plugin-installed cron-like jobs
+    can shell out to a single, stable command name without polluting the
+    top-level help. Commands here may change between releases.
+    """
+
+
+@internal_group.command(
+    "briefings-context",
+    help="Print the gathered briefings context for PERIOD as markdown.",
+)
+@click.argument("period", type=click.Choice(list(PERIODS)))
+@handle_errors
+def briefings_context_command(period: str) -> None:
+    state = _load_state_or_empty()
+    if state is None:
+        raise click.ClickException(
+            "cerebro state is not initialised; run `cerebro init` first"
+        )
+    text = gather_context(period, vault_path=state.vault_path)  # type: ignore[arg-type]
+    click.echo(text)
+
+
+@internal_group.command(
+    "briefings-write",
+    help="Materialise a stub briefing note in the vault for PERIOD.",
+)
+@click.argument("period", type=click.Choice(list(PERIODS)))
+@click.pass_context
+@handle_errors
+def briefings_write_command(ctx: click.Context, period: str) -> None:
+    state = _load_state_or_empty()
+    if state is None:
+        raise click.ClickException(
+            "cerebro state is not initialised; run `cerebro init` first"
+        )
+    path = write_stub_note(period, vault_path=state.vault_path)  # type: ignore[arg-type]
+    if ctx.obj.get("json"):
+        click.echo(json.dumps({"period": period, "path": str(path)}))
+    else:
+        click.echo(str(path))
 
 
 @cli.command(

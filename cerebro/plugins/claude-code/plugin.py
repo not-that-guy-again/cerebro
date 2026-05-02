@@ -54,6 +54,7 @@ if TYPE_CHECKING:
 
 _CLI_BINARY = "claude"
 _NPM_PACKAGE = "@anthropic-ai/claude-code"
+_SLASH_COMMAND_SUFFIX = ".md"
 
 # Per-IDE companion extension IDs. Add an entry here when a new IDE
 # plugin lands; the IDE plugin's ``install_companion_extension`` helper
@@ -82,6 +83,65 @@ def rules_file_path(ctx: HookContext) -> Path:
     """
     del ctx
     return Path("~/.claude/CLAUDE.md").expanduser()
+
+
+def slash_command_path(ctx: HookContext, name: str) -> Path:
+    """Path of the slash command file for command ``name``.
+
+    Published surface for workflow plugins. Claude Code reads
+    ``~/.claude/commands/<name>.md`` and exposes it as ``/<name>``.
+    Callers use this to verify a previously-registered command is
+    present without hardcoding the directory.
+    """
+    del ctx
+    return Path("~/.claude/commands").expanduser() / f"{name}{_SLASH_COMMAND_SUFFIX}"
+
+
+def register_slash_command(ctx: HookContext, name: str, script_path: Path) -> Path:
+    """Install a slash command that invokes ``script_path``'s content.
+
+    Published surface for workflow plugins (SPEC-13). The script's
+    contents are copied to ``~/.claude/commands/<name>.md`` through
+    ``ctx.fs.write_file`` so the operation is recorded and reversed on
+    uninstall. ``script_path`` is read once at call time; the caller's
+    file does not need to remain on disk afterwards.
+
+    Returns the destination path so callers can chain.
+    """
+    source = Path(script_path)
+    if not source.is_file():
+        raise FileNotFoundError(
+            f"slash command script not found: {source} "
+            f"(register_slash_command requires the file to exist)"
+        )
+    destination = slash_command_path(ctx, name)
+    ctx.fs.write_file(destination, source.read_text(encoding="utf-8"))
+    ctx.log.info(
+        "registered slash command /%s -> %s",
+        name,
+        destination,
+    )
+    return destination
+
+
+def unregister_slash_command(ctx: HookContext, name: str) -> bool:
+    """Remove the slash command file for ``name``.
+
+    Published surface for workflow plugins (SPEC-13). Not transactional:
+    a normal uninstall flow lets the engine replay the recorded
+    ``register_slash_command`` write_file op instead of calling this
+    helper. ``unregister_slash_command`` exists for callers that need to
+    remove a command at a different point in the lifecycle (e.g. a
+    workflow plugin's reconfigure hook prunes commands it no longer
+    wants registered). Returns ``True`` if a file was removed,
+    ``False`` if there was nothing to remove.
+    """
+    destination = slash_command_path(ctx, name)
+    if not destination.exists():
+        return False
+    destination.unlink()
+    ctx.log.info("unregistered slash command /%s (removed %s)", name, destination)
+    return True
 
 
 def install(ctx: HookContext) -> None:
@@ -235,7 +295,10 @@ def _block_content(vault_path: Path) -> str:
 __all__ = [
     "configure",
     "install",
+    "register_slash_command",
     "rules_file_path",
+    "slash_command_path",
     "uninstall",
+    "unregister_slash_command",
     "verify",
 ]
