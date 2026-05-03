@@ -1,0 +1,17 @@
+name: example
+version: 1.0.0
+type: behavior
+description: Worked example used by the plugin authoring guide.
+dependencies: {}
+min_core_version: 0.1.0
+supported_platforms:
+  - macos
+  - linux_apt
+  - linux_pacman
+targets:
+  - all agent plugins
+hooks_declared:
+  - install
+  - uninstall
+  - configure
+  - verify
